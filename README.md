@@ -7,17 +7,16 @@ Este repositório contém a implementação do framework híbrido proposto para 
 ## 📌 Status do Projeto e Ponto de Parada
 
 > [!IMPORTANT]
-> **Etapa Atual de Parada:** Conclusão completa do **Módulo 3 (Integração Pre-IF e Validação do Espaço Latente)**. O modelo FC-DAE foi treinado com sucesso (perda MSE: `0.000301`), o espaço latente $z \in \mathbb{R}^9$ e o erro MSE foram extraídos para $1.589.924$ amostras e os relatórios/gráficos t-SNE foram gerados em `reports/`.
-> 
-> 📍 **Próximo Passo:** Implementação do **Módulo 4 (Deep Isolation Forest - DIF)** sobre o espaço latente persistido em `data/processed/latent_space.parquet`.
+> **Etapa Atual:** Conclusão completa de todos os 5 módulos do framework híbrido NIDS (Módulos 1 a 5). A infraestrutura de avaliação experimental, particionamento sem vazamento (*anti-leakage*), cadeia de baselines (B1 a B6b), ablação do DEAS, detector de fusão linear ponderada adaptativo, regra disjuntiva (OR) e análise de sensibilidade OFAT foram implementados e validados com 100% de aprovação na suíte de testes.
 
 | Módulo | Descrição | Status | Artefatos Principais |
 | :--- | :--- | :---: | :--- |
-| **Módulo 1** | Pré-processamento e Normalização Min-Max $[0, 1]$ | `[x] Concluído` | [X_train_autoencoder.parquet](file:///d:/tcc-II/src/data/X_train_autoencoder.parquet) |
-| **Módulo 2** | Arquitetura Deep Autoencoder (FC-DAE em PyTorch) | `[x] Concluído` | [ae.md](file:///d:/tcc-II/ae.md), [autoencoder.py](file:///d:/tcc-II/src/models/autoencoder.py), [train_ae.py](file:///d:/tcc-II/src/train_ae.py), [extract_latent.py](file:///d:/tcc-II/src/extract_latent.py) |
-| **Módulo 3** | Pipeline de Transição Pre-IF e Validação Latente | `[x] Concluído` | [pre_if.md](file:///d:/tcc-II/pre_if.md), [validate_latent.py](file:///d:/tcc-II/src/validate_latent.py), [validation_report.md](file:///d:/tcc-II/reports/validation_report.md) |
-| **Módulo 4** | Deep Isolation Forest (DIF) sobre Espaço Latente | `[ ] Pendente` | *(Próxima etapa)* |
-| **Módulo 5** | Avaliação Experimental Completa e Métricas de Detecção | `[ ] Pendente` | *(Etapa final)* |
+| **Módulo 1** | Pré-processamento e Normalização Min-Max $[0, 1]$ | `[x] Concluído` | `X_train_autoencoder.parquet` |
+| **Módulo 2** | Arquitetura Deep Autoencoder (FC-DAE em PyTorch) | `[x] Concluído` | [ae.md](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/ae.md), [autoencoder.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/models/autoencoder.py), [train_ae.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/train_ae.py), [extract_latent.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/extract_latent.py) |
+| **Módulo 3** | Pipeline de Transição Pre-IF e Validação Latente | `[x] Concluído` | [pre_if.md](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/pre_if.md), [validate_latent.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/validate_latent.py), [validation_report.md](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/reports/validation_report.md) |
+| **Módulo 4** | Deep Isolation Forest (DIF) sobre Espaço Latente | `[x] Concluído` | [dif.md](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/dif.md), [dif.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/models/dif.py), [train_dif.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/train_dif.py), [score_dif.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/score_dif.py) |
+| **Módulo 5** | Avaliação Experimental Completa e Métricas de Detecção | `[x] Concluído` | [eval.md](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/eval.md), [evaluate_protocol.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/evaluate_protocol.py), [partitioner.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/evaluation/partitioner.py), [baselines.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/evaluation/baselines.py), [hybrid.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/evaluation/hybrid.py), [sensitivity.py](file:///c:/Users/robso/Downloads/dea-dif-artefact-main/dea-dif-artefact-main/src/evaluation/sensitivity.py) |
+
 
 ---
 
@@ -94,11 +93,32 @@ python src/extract_latent.py --model_path models/fc_dae_best.pt --parquet_path s
 python src/validate_latent.py --latent_parquet data/processed/latent_space.parquet --mse_column mse --sample_size 5000
 ```
 
+### 5. Treinamento do Deep Isolation Forest (Módulo 4)
+```powershell
+python src/train_dif.py --latent_parquet data/processed/latent_space.parquet --model_out models/dif_ensemble.joblib --metadata_out models/dif_metadata.json --trees 100 --subsample 256 --representations 10 --lambda_deas 0.5 --val_percentile 95.0
+```
+
+### 6. Inferência e Extração de Scores DIF (Módulo 4)
+```powershell
+python src/score_dif.py --latent_parquet data/processed/latent_space.parquet --model_path models/dif_ensemble.joblib --output_parquet data/processed/dif_scores.parquet --batch_size 32768 --n_jobs -1
+```
+
+### 7. Avaliação Experimental de Baselines e Pipeline Unificado (Módulo 5)
+```powershell
+# Execução padrão do pipeline de avaliação de baselines (B1 a B6b) com dados sintéticos
+python src/evaluate_protocol.py --synthetic --output_dir reports/ --random_state 42 --run_ofat
+
+# Execução sobre o dataset parquet processado do CICIDS2017
+python src/evaluate_protocol.py --data_path data/processed/cicids2017_full.parquet --output_dir reports/ --random_state 42 --run_ofat --run_lstm
+```
+
 ---
 
-## 📋 Próximas Etapas
+## 📋 Próximas Etapas e Conclusão Metodológica
 
-1. **Implementar Módulo 4 (Deep Isolation Forest - DIF):**
-   - Construção do módulo PyTorch / Python para projetar aleatoriamente o espaço latente $z \in \mathbb{R}^9$ em subespaços e calcular a profundidade média de isolamento.
-2. **Executar Pipeline Ponta a Ponta no Conjunto de Teste:**
-   - Ingerir o dataset de teste contendo tráfego benigno e anomalias (`X_test.parquet`) para obter a matriz de confusão final, F1-Score, Precisão, Recall e curva ROC-AUC do framework completo.
+1. **Geração de Gráficos Finais para o TCC:**
+   - Consolidar as figuras exportadas em `reports/figures/sensitivity/` nos capítulos 4 e 5 do TCC.
+   - Integrar as tabelas Markdown geradas (`reports/experimental_results.md`) diretamente na redação dos resultados experimentais.
+2. **Execução em Larga Escala:**
+   - Rodar o pipeline unificado com `--data_path` apontando para o dataset completo em ambiente de produção com múltiplos nós/GPUs.
+

@@ -42,3 +42,6 @@ ENV/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Test cache
+.pytest_cache/
