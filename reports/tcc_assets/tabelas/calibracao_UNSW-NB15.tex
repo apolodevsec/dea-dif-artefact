@@ -1,0 +1,25 @@
+% Gerado por src/make_tcc_assets.py -- nao editar a mao.
+\begin{table}[htbp]
+\centering
+\caption{Parâmetros calibrados sem vazamento — UNSW-NB15.}
+\label{tab:calibracao-unsw-nb15}
+\small
+\begin{tabular}{lrl}
+\hline
+Parâmetro & Valor & Regime \\
+\hline
+$\tau_{AE}$ (percentil $p=95$) & 0.012036 & Não supervisionado \\
+$\tau_{AE}$ ($\mu + 3.0\sigma$) & 0.015563 & Não supervisionado \\
+$\tau_{DIF,ref}$ (percentil $p=95$) & 0.634876 & Não supervisionado \\
+B1\_iForest\_Raw & 0.423626 & Supervisionado (Youden) \\
+B2\_Autoencoder\_Alone & 0.005369 & Supervisionado (Youden) \\
+B3\_PreIF\_iForest & 0.497943 & Supervisionado (Youden) \\
+B3b\_PreIF\_DIF\_Pure & 0.476371 & Supervisionado (Youden) \\
+B6a\_Hybrid\_Linear\_tau & 0.479119 & Supervisionado (Youden) \\
+B6a\_Hybrid\_Linear\_alpha & 0.770000 & Supervisionado (Youden) \\
+B6b\_Hybrid\_OR\_tau\_dif & 0.522446 & Supervisionado (Youden) \\
+B6b\_Hybrid\_OR\_tau\_ae & 0.005369 & Supervisionado (Youden) \\
+\hline
+\end{tabular}
+\begin{flushleft}\footnotesize Regra adotada para $\tau_{AE}$: \texttt{percentile}. Os limiares não supervisionados usam apenas tráfego benigno de validação; os supervisionados usam a validação rotulada e nunca o teste.\end{flushleft}
+\end{table}

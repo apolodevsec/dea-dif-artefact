@@ -3,15 +3,45 @@ import pytest
 from src.models.dif import DeepIsolationForest
 
 
+def test_deas_score_uplift_is_an_algebraic_identity():
+    """`score_deas >= score_standard` é identidade, não evidência.
+
+    Como `h_deas = sum(1 - lambda*dev) + c_folha` e `dev >= 0`, tem-se sempre
+    `h_deas <= h_standard`; e como o escore é `2^(-h/c)`, monotonicamente decrescente
+    em `h`, o escore DEAS é sempre maior ou igual ao padrão — para pontos densos,
+    vazios ou extremos, indistintamente.
+
+    Este teste fixa esse fato justamente para impedir que ele seja usado como se
+    fosse validação da mitigação de ghost regions: um teste que só verifica
+    `deas > standard` passaria com qualquer conjunto de pontos.
+    """
+    for seed in (0, 1, 2):
+        rng = np.random.RandomState(seed)
+        X_train = rng.normal(0.0, 1.0, size=(600, 9)).astype(np.float32)
+        X_eval = rng.normal(0.0, 2.0, size=(300, 9)).astype(np.float32)
+
+        clf = DeepIsolationForest(
+            n_estimators=30, max_samples=128, n_representations=3,
+            lambda_deas=0.5, random_state=seed, n_jobs=1,
+        )
+        clf.fit(X_train)
+        scores = clf.score_samples(X_eval)
+
+        assert np.all(scores["score_dif_deas"] >= scores["score_dif_standard"] - 1e-12)
+
+
 def test_ghost_regions_mitigation():
     """Validação da hipótese central: mitigação do problema de ghost regions pelo DEAS.
-    
+
     Cenário: Dois clusters densos em x = -5 e x = +5.
     A região entre -1 e +1 é vazia (ghost region).
     O iForest clássico frequentemente atribui comprimentos de caminho longos (baixo score de anomalia)
     a pontos nessa região vazia devido a cortes axiais grosseiros.
-    O DEAS penaliza essa região vazia calculando o desvio relativo contínuo em relação aos nós,
-    atribuindo scores de anomalia superiores aos do iForest padrão.
+
+    A afirmação testável **não** é "o DEAS eleva o escore na ghost region" — isso vale
+    para qualquer ponto (ver `test_deas_score_uplift_is_an_algebraic_identity`). É que o
+    DEAS eleva a ghost region **mais do que** eleva a região densa, aumentando a
+    separação entre as duas.
     """
     np.random.seed(42)
     # Cluster 1: centrado em -5.0
@@ -50,15 +80,32 @@ def test_ghost_regions_mitigation():
     # 1. Discriminação de outliers: Outliers extremos devem ter score significativamente maior que pontos densos
     assert np.mean(scores_outliers["score_dif_deas"]) > np.mean(scores_dense["score_dif_deas"]) + 0.15
 
-    # 2. Mitigação de Ghost Regions:
-    # Na região vazia, o DEAS deve acusar maior anomalia que o score padrão
-    mean_ghost_deas = np.mean(scores_ghost["score_dif_deas"])
-    mean_ghost_std = np.mean(scores_ghost["score_dif_standard"])
-    assert mean_ghost_deas > mean_ghost_std, (
-        f"Esperava que score DEAS ({mean_ghost_deas:.4f}) fosse superior ao standard ({mean_ghost_std:.4f}) na ghost region"
+    # 2. Mitigação de Ghost Regions (afirmação não-trivial):
+    # a elevação que o DEAS aplica precisa ser MAIOR na região vazia do que na densa.
+    lift_ghost = float(
+        np.mean(scores_ghost["score_dif_deas"] - scores_ghost["score_dif_standard"])
+    )
+    lift_dense = float(
+        np.mean(scores_dense["score_dif_deas"] - scores_dense["score_dif_standard"])
+    )
+    assert lift_ghost > lift_dense, (
+        f"O DEAS precisa elevar mais a ghost region ({lift_ghost:+.6f}) do que a região "
+        f"densa ({lift_dense:+.6f}); caso contrário é apenas um deslocamento uniforme."
     )
 
-    # 3. Preservação de normalidade: Amostras densas devem ter escores bem contidos
+    # 3. Consequência: a separação entre região vazia e região densa aumenta.
+    gap_standard = float(
+        np.mean(scores_ghost["score_dif_standard"]) - np.mean(scores_dense["score_dif_standard"])
+    )
+    gap_deas = float(
+        np.mean(scores_ghost["score_dif_deas"]) - np.mean(scores_dense["score_dif_deas"])
+    )
+    assert gap_deas > gap_standard, (
+        f"A separação ghost-densa deveria crescer com o DEAS: "
+        f"padrão {gap_standard:+.6f} -> DEAS {gap_deas:+.6f}"
+    )
+
+    # 4. Preservação de normalidade: Amostras densas devem ter escores bem contidos
     assert np.mean(scores_dense["score_dif_deas"]) < 0.55
 
 

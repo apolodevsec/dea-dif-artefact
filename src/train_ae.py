@@ -49,9 +49,11 @@ def train_autoencoder(
     patience: int = 10,
     bottleneck_dim: int = None,
     device_name: str = "auto",
-    num_workers: int = 0
+    num_workers: int = 0,
+    seed: int = 42
 ):
     print(f"Carregando tráfego normal de {parquet_path}...")
+    torch.manual_seed(seed)
     if isinstance(normal_value, str) and normal_value.isdigit():
         normal_value = int(normal_value)
 
@@ -63,10 +65,21 @@ def train_autoencoder(
     )
 
     n_samples = len(full_dataset)
-    val_size = int(n_samples * 0.2)
+    if n_samples < 2:
+        raise ValueError(
+            f"Amostras normais insuficientes para treinar o FC-DAE: {n_samples}. "
+            f"Verifique 'label_column'/'normal_value' e o conteúdo de '{parquet_path}'."
+        )
+
+    # Garante ao menos uma amostra em cada lado da divisão, evitando divisão por zero
+    # no cálculo das perdas médias quando o dataset é pequeno.
+    val_size = min(max(1, int(n_samples * 0.2)), n_samples - 1)
     train_size = n_samples - val_size
 
-    train_ds, val_ds = random_split(full_dataset, [train_size, val_size])
+    # Divisão semeada: sem isso a partição de validação muda a cada execução e as
+    # perdas reportadas deixam de ser reproduzíveis.
+    split_generator = torch.Generator().manual_seed(seed)
+    train_ds, val_ds = random_split(full_dataset, [train_size, val_size], generator=split_generator)
 
     train_loader = DataLoader(
         train_ds,
@@ -159,6 +172,7 @@ if __name__ == "__main__":
     parser.add_argument("--bottleneck_dim", type=int, default=None, help="Dimensão manual do bottleneck (opcional)")
     parser.add_argument("--device", type=str, default="auto", help="Dispositivo: auto, cpu, cuda, dml")
     parser.add_argument("--num_workers", type=int, default=0, help="Número de sub-processos no DataLoader")
+    parser.add_argument("--seed", type=int, default=42, help="Semente da divisão treino/validação e dos pesos")
 
     args = parser.parse_args()
     train_autoencoder(
@@ -172,5 +186,6 @@ if __name__ == "__main__":
         patience=args.patience,
         bottleneck_dim=args.bottleneck_dim,
         device_name=args.device,
-        num_workers=args.num_workers
+        num_workers=args.num_workers,
+        seed=args.seed
     )

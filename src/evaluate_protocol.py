@@ -159,8 +159,18 @@ def run_evaluation_pipeline(
     else:
         df = pd.read_parquet(data_path)
         feature_cols = [c for c in df.columns if c not in ["Label", "Attack_Category", "Timestamp"]]
+        # ATENÇÃO: este caminho NÃO treina o FC-DAE. O "latente" é apenas um recorte das
+        # m primeiras features brutas e o MSE é preenchido com zeros, o que degenera B2
+        # (autoencoder isolado) e a fusão híbrida B6a/B6b. Serve somente para exercitar a
+        # mecânica do pipeline sobre um parquet monolítico.
+        # Para resultados válidos, use `python -m src.train_pipeline`, que treina o
+        # FC-DAE e deriva z e o MSE do modelo ajustado.
+        print(
+            "[AVISO] Modo --data_path: espaço latente e MSE são substitutos sintéticos "
+            "(sem FC-DAE treinado). As métricas de B2, B6a e B6b não são válidas. "
+            "Use 'python -m src.train_pipeline' para a rotina completa de treino e validação."
+        )
         Z_all = df[feature_cols[:m_latent]].to_numpy(dtype=np.float32)
-        # Erro MSE padrão mock ou computado
         mse_all = np.zeros(len(df), dtype=np.float32)
 
     # 2. Particionamento sem vazamento

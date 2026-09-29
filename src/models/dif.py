@@ -302,26 +302,36 @@ class DeepIsolationForest:
                 "score_dif_standard": np.empty((0,), dtype=np.float64),
             }
 
-        # 1. Pré-projetar o dataset através das r redes neurais (aproveitando GPU/CPU vetorizada)
-        projected_reps: List[np.ndarray] = []
-        for net in self.networks_:
-            projected_reps.append(net.project(X, batch_size=batch_size))
-
-        # 2. Avaliar as árvores em paralelo via joblib
-        def _eval_tree(net_idx: int, tree: IsolationTree) -> Tuple[np.ndarray, np.ndarray]:
-            Z = projected_reps[net_idx]
-            return tree.evaluate(Z, lambda_deas=lam)
-
-        results = Parallel(n_jobs=self.n_jobs, prefer="threads")(
-            delayed(_eval_tree)(net_idx, tree) for net_idx, tree in self.estimators_
-        )
+        # Agrupa as árvores por rede de projeção para que cada bloco de amostras
+        # seja projetado uma única vez por rede Phi_i.
+        trees_by_net: Dict[int, List[IsolationTree]] = {}
+        for net_idx, tree in self.estimators_:
+            trees_by_net.setdefault(net_idx, []).append(tree)
 
         total_h_deas = np.zeros(n_samples, dtype=np.float64)
         total_h_standard = np.zeros(n_samples, dtype=np.float64)
 
-        for h_d, h_s in results:
-            total_h_deas += h_d
-            total_h_standard += h_s
+        # Percorre o dataset em blocos de linhas: o pico de memória fica limitado a
+        # uma única representação projetada (chunk x d), em vez de r cópias do
+        # dataset completo. Cada amostra é avaliada integralmente dentro do seu
+        # bloco, preservando a invariância dos escores em relação a batch_size.
+        chunk = max(1, int(batch_size))
+        for start in range(0, n_samples, chunk):
+            end = min(start + chunk, n_samples)
+            X_chunk = X[start:end]
+
+            for net_idx, trees in trees_by_net.items():
+                Z_chunk = self.networks_[net_idx].project(X_chunk, batch_size=chunk)
+
+                results = Parallel(n_jobs=self.n_jobs, prefer="threads")(
+                    delayed(tree.evaluate)(Z_chunk, lam) for tree in trees
+                )
+
+                for h_d, h_s in results:
+                    total_h_deas[start:end] += h_d
+                    total_h_standard[start:end] += h_s
+
+                del Z_chunk
 
         mean_h_deas = total_h_deas / len(self.estimators_)
         mean_h_standard = total_h_standard / len(self.estimators_)

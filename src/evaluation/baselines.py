@@ -18,16 +18,26 @@ class BaselineRunner:
         n_estimators: int = 100,
         max_samples: int = 256,
         n_representations: int = 10,
+        n_layers: int = 3,
+        projection_dim: Optional[int] = None,
         lambda_deas: float = 0.5,
         p_low: float = 1.0,
         p_high: float = 99.0,
         n_grid: int = 101,
         random_state: Optional[int] = 42,
         n_jobs: int = -1,
+        score_batch_size: int = 32768,
+        reuse_forest_for_ablation: bool = True,
+        max_supervised_rows: Optional[int] = None,
     ):
+        self.score_batch_size = score_batch_size
+        self.reuse_forest_for_ablation = reuse_forest_for_ablation
+        self.max_supervised_rows = max_supervised_rows
         self.n_estimators = n_estimators
         self.max_samples = max_samples
         self.n_representations = n_representations
+        self.n_layers = n_layers
+        self.projection_dim = projection_dim
         self.lambda_deas = lambda_deas
         self.p_low = p_low
         self.p_high = p_high
@@ -52,8 +62,16 @@ class BaselineRunner:
         y_test: np.ndarray,
         test_classes: Optional[Sequence[Any]] = None,
         val_normal_mask: Optional[np.ndarray] = None,
+        X_sup_train: Optional[np.ndarray] = None,
+        y_sup_train: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """Executa a cadeia completa de baselines tabulares e gera métricas comparativas padronizadas."""
+        """Executa a cadeia completa de baselines tabulares e gera métricas comparativas padronizadas.
+
+        :param X_sup_train: conjunto rotulado dedicado ao baseline supervisionado B4.
+            Quando omitido, B4 recai sobre `X_train_raw` (assumido integralmente
+            benigno) somado à validação rotulada.
+        :param y_sup_train: rótulos binários correspondentes a `X_sup_train`.
+        """
         n_test = len(y_test)
         summary_rows: Dict[str, Dict[str, float]] = {}
         stratified_recalls: Dict[str, Dict[str, Any]] = {}
@@ -137,26 +155,70 @@ class BaselineRunner:
             )
 
         # -------------------------------------------------------------
-        # B3b: Pre-IF + DIF puro (lambda_deas = 0.0) sobre o espaço latente Z
-        # Isolando as projeções aleatórias não-lineares Phi_i do DEAS
+        # Ensemble DIF compartilhado entre B3b e B6a/B6b.
+        #
+        # A indução das árvores não consome lambda_deas: com a mesma semente, os
+        # ensembles de lambda=0 e lambda=0.5 são estruturalmente idênticos. Reusar
+        # uma única floresta torna a ablação do DEAS exata (a topologia é mantida
+        # fixa e apenas o termo de desvio varia) e elimina um ajuste redundante.
+        # `score_dif_standard` corresponde analiticamente a lambda = 0.
         # -------------------------------------------------------------
-        b3b_model = DeepIsolationForest(
+        b6_dif = DeepIsolationForest(
             n_estimators=self.n_estimators,
             max_samples=self.max_samples,
             n_representations=self.n_representations,
-            lambda_deas=0.0,
+            n_layers=self.n_layers,
+            projection_dim=self.projection_dim,
+            lambda_deas=self.lambda_deas,
             random_state=self.random_state,
             n_jobs=self.n_jobs,
         )
-        b3b_model.fit(Z_train)
+        t0 = time.perf_counter()
+        b6_dif.fit(Z_train)
+        dif_fit_seconds = time.perf_counter() - t0
 
-        scores_b3b_val = b3b_model.score_samples(Z_val)["score_dif_deas"]
-        tau_b3b, _ = _find_best_youden_threshold(y_val, scores_b3b_val)
-        thresholds["B3b_PreIF_DIF_Pure"] = tau_b3b
+        val_scores_dif = b6_dif.score_samples(Z_val, batch_size=self.score_batch_size)
 
         t0 = time.perf_counter()
-        scores_b3b_test = b3b_model.score_samples(Z_test)["score_dif_deas"]
-        lat_b3b = ((time.perf_counter() - t0) * 1000.0) / max(1, n_test)
+        test_scores_dif = b6_dif.score_samples(Z_test, batch_size=self.score_batch_size)
+        lat_dif_shared = ((time.perf_counter() - t0) * 1000.0) / max(1, n_test)
+
+        scores_dif_val = val_scores_dif["score_dif_deas"]
+        scores_dif_test = test_scores_dif["score_dif_deas"]
+        lat_b6_dif = lat_dif_shared
+
+        # -------------------------------------------------------------
+        # B3b: Pre-IF + DIF puro (lambda_deas = 0.0) sobre o espaço latente Z
+        # Isola as projeções aleatórias não-lineares Phi_i do efeito do DEAS
+        # -------------------------------------------------------------
+        if self.reuse_forest_for_ablation:
+            b3b_model = b6_dif
+            scores_b3b_val = val_scores_dif["score_dif_standard"]
+            scores_b3b_test = test_scores_dif["score_dif_standard"]
+            # A travessia das árvores produz h_deas e h_standard no mesmo passo,
+            # logo a latência medida é compartilhada entre B3b e B6.
+            lat_b3b = lat_dif_shared
+        else:
+            b3b_model = DeepIsolationForest(
+                n_estimators=self.n_estimators,
+                max_samples=self.max_samples,
+                n_representations=self.n_representations,
+                n_layers=self.n_layers,
+                projection_dim=self.projection_dim,
+                lambda_deas=0.0,
+                random_state=self.random_state,
+                n_jobs=self.n_jobs,
+            )
+            b3b_model.fit(Z_train)
+
+            scores_b3b_val = b3b_model.score_samples(Z_val, batch_size=self.score_batch_size)["score_dif_deas"]
+
+            t0 = time.perf_counter()
+            scores_b3b_test = b3b_model.score_samples(Z_test, batch_size=self.score_batch_size)["score_dif_deas"]
+            lat_b3b = ((time.perf_counter() - t0) * 1000.0) / max(1, n_test)
+
+        tau_b3b, _ = _find_best_youden_threshold(y_val, scores_b3b_val)
+        thresholds["B3b_PreIF_DIF_Pure"] = tau_b3b
 
         y_pred_b3b = (scores_b3b_test > tau_b3b).astype(int)
         metrics_b3b = self.evaluator.evaluate(
@@ -170,16 +232,36 @@ class BaselineRunner:
 
         # -------------------------------------------------------------
         # B4: Random Forest supervisionado (teto teórico comparativo)
-        # Treinado estritamente com dados de treino normal + validação rotulada
-        # Zero contato com o conjunto de teste cego
+        # Treinado em `X_sup_train`/`y_sup_train` quando fornecidos (benigno de treino
+        # + ataques de treino reservados); caso contrário, em treino normal + validação
+        # rotulada. Em nenhuma hipótese há contato com o conjunto de teste cego.
         # -------------------------------------------------------------
         b4_model = RandomForestClassifier(
             n_estimators=self.n_estimators,
             random_state=self.random_state,
             n_jobs=self.n_jobs,
         )
-        X_b4_train = np.vstack([X_train_raw, X_val_raw])
-        y_b4_train = np.concatenate([np.zeros(len(X_train_raw), dtype=int), y_val])
+        if X_sup_train is not None and y_sup_train is not None:
+            X_b4_train = np.asarray(X_sup_train)
+            y_b4_train = np.asarray(y_sup_train, dtype=int)
+        else:
+            X_b4_train = np.vstack([X_train_raw, X_val_raw])
+            y_b4_train = np.concatenate([np.zeros(len(X_train_raw), dtype=int), y_val])
+
+        if self.max_supervised_rows is not None and len(X_b4_train) > self.max_supervised_rows:
+            # Subamostragem estratificada por classe binária para manter o custo do
+            # teto supervisionado tratável em datasets de milhões de fluxos.
+            sub_rng = np.random.RandomState(self.random_state)
+            fraction = self.max_supervised_rows / len(X_b4_train)
+            keep_parts = []
+            for cls in np.unique(y_b4_train):
+                cls_idx = np.flatnonzero(y_b4_train == cls)
+                quota = min(len(cls_idx), max(1, int(round(len(cls_idx) * fraction))))
+                keep_parts.append(sub_rng.permutation(cls_idx)[:quota])
+            keep = np.sort(np.concatenate(keep_parts))
+            X_b4_train, y_b4_train = X_b4_train[keep], y_b4_train[keep]
+
+        b4_rows_used = int(len(X_b4_train))
         b4_model.fit(X_b4_train, y_b4_train)
 
         t0 = time.perf_counter()
@@ -208,23 +290,7 @@ class BaselineRunner:
         # B6a: Fusão Linear Ponderada com calibração adaptativa de alfa
         # B6b: Regra Disjuntiva (OR)
         # -------------------------------------------------------------
-        b6_dif = DeepIsolationForest(
-            n_estimators=self.n_estimators,
-            max_samples=self.max_samples,
-            n_representations=self.n_representations,
-            lambda_deas=self.lambda_deas,
-            random_state=self.random_state,
-            n_jobs=self.n_jobs,
-        )
-        b6_dif.fit(Z_train)
-
-        scores_dif_val = b6_dif.score_samples(Z_val)["score_dif_deas"]
-
-        # Inferência DIF no teste
-        t0 = time.perf_counter()
-        scores_dif_test = b6_dif.score_samples(Z_test)["score_dif_deas"]
-        lat_b6_dif = ((time.perf_counter() - t0) * 1000.0) / max(1, n_test)
-
+        # O ensemble e os escores DEAS já foram calculados no bloco compartilhado.
         # Inicializa detector híbrido
         detector = HybridFusionDetector(
             p_low=self.p_low,
@@ -283,6 +349,28 @@ class BaselineRunner:
             "delta_deas_f1": delta_deas_f1,
             "delta_deas_auc": delta_deas_auc,
             "detector": detector,
+            "b4_supervised_rows": b4_rows_used,
+            "shared_dif_forest": bool(self.reuse_forest_for_ablation),
+            "dif_fit_seconds": float(dif_fit_seconds),
+            "scores": {
+                "dif_val_deas": val_scores_dif["score_dif_deas"],
+                "dif_val_standard": val_scores_dif["score_dif_standard"],
+                "dif_test_deas": test_scores_dif["score_dif_deas"],
+                "dif_test_standard": test_scores_dif["score_dif_standard"],
+                "mse_test": np.asarray(mse_test, dtype=np.float64),
+                "fused_test": scores_b6a,
+            },
+            # Escores contínuos de cada baseline no teste cego, na mesma ordem das
+            # linhas de y_test. Viabilizam curvas ROC/PR sem reexecutar o treino.
+            "test_scores_by_model": {
+                "B1_iForest_Raw": np.asarray(scores_b1_test, dtype=np.float64),
+                "B2_Autoencoder_Alone": np.asarray(mse_test, dtype=np.float64),
+                "B3_PreIF_iForest": np.asarray(scores_b3_test, dtype=np.float64),
+                "B3b_PreIF_DIF_Pure": np.asarray(scores_b3b_test, dtype=np.float64),
+                "B4_RandomForest_Supervised": np.asarray(scores_b4_test, dtype=np.float64),
+                "B6a_Hybrid_Linear": np.asarray(scores_b6a, dtype=np.float64),
+                "B6b_Hybrid_OR": np.asarray(scores_b6b, dtype=np.float64),
+            },
             "models": {
                 "b1": b1_model,
                 "b3": b3_model,

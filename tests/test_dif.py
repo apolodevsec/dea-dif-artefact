@@ -64,6 +64,63 @@ def test_numerical_stability_on_constant_data():
     assert not np.isnan(scores["score_dif_standard"]).any()
     assert not np.isinf(scores["score_dif_standard"]).any()
 
+def test_lambda_reaches_the_score_from_the_constructor():
+    """Guarda de fiação: lambda do construtor precisa chegar ao cálculo do escore.
+
+    Um lambda que não se propaga produziria escores idênticos para qualquer valor —
+    exatamente o sintoma de uma varredura OFAT que sai como uma reta perfeita. Este
+    teste distingue "lambda sem efeito" de "lambda não conectado".
+    """
+    np.random.seed(42)
+    X_normal = np.random.normal(loc=0.0, scale=1.0, size=(400, 9)).astype(np.float32)
+    X_eval = np.random.normal(loc=0.0, scale=2.0, size=(120, 9)).astype(np.float32)
+
+    means = []
+    for lam in (0.0, 0.25, 0.5, 0.75, 1.0):
+        clf = DeepIsolationForest(
+            n_estimators=25, max_samples=128, n_representations=5,
+            lambda_deas=lam, random_state=42, n_jobs=1,
+        )
+        clf.fit(X_normal)
+        means.append(float(np.mean(clf.score_samples(X_eval)["score_dif_deas"])))
+
+    # h decresce monotonicamente com lambda, logo o escore 2^(-h/c) cresce.
+    assert means == sorted(means), f"Escore médio não é monotônico em lambda: {means}"
+    assert means[-1] - means[0] > 1e-3, (
+        f"Lambda não produziu efeito mensurável no escore ({means[0]:.6f} -> {means[-1]:.6f}); "
+        f"suspeitar de parâmetro não propagado."
+    )
+
+
+def test_lambda_argument_overrides_the_constructor_value():
+    """`score_samples(lambda_deas=...)` precisa ter precedência sobre o construtor."""
+    np.random.seed(7)
+    X_normal = np.random.normal(size=(300, 9)).astype(np.float32)
+    X_eval = np.random.normal(scale=2.0, size=(80, 9)).astype(np.float32)
+
+    built_with_zero = DeepIsolationForest(
+        n_estimators=20, max_samples=128, n_representations=4,
+        lambda_deas=0.0, random_state=11, n_jobs=1,
+    ).fit(X_normal)
+    built_with_one = DeepIsolationForest(
+        n_estimators=20, max_samples=128, n_representations=4,
+        lambda_deas=1.0, random_state=11, n_jobs=1,
+    ).fit(X_normal)
+
+    # A indução das árvores não consome lambda: com a mesma semente as florestas são
+    # idênticas, então o mesmo lambda de inferência precisa dar o mesmo escore.
+    np.testing.assert_allclose(
+        built_with_zero.score_samples(X_eval, lambda_deas=0.5)["score_dif_deas"],
+        built_with_one.score_samples(X_eval, lambda_deas=0.5)["score_dif_deas"],
+        atol=1e-12,
+    )
+    # E o argumento precisa sobrepor o valor do construtor.
+    assert not np.allclose(
+        built_with_zero.score_samples(X_eval)["score_dif_deas"],
+        built_with_zero.score_samples(X_eval, lambda_deas=1.0)["score_dif_deas"],
+    )
+
+
 def test_lambda_sensitivity_monotonicity():
     """Verifica se o fator lambda modula a sensibilidade do desvio contínuo."""
     np.random.seed(42)

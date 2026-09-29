@@ -1,0 +1,25 @@
+% Gerado por src/make_tcc_assets.py -- nao editar a mao.
+\begin{table}[htbp]
+\centering
+\caption{Parâmetros calibrados sem vazamento — NSL-KDD.}
+\label{tab:calibracao-nsl-kdd}
+\small
+\begin{tabular}{lrl}
+\hline
+Parâmetro & Valor & Regime \\
+\hline
+$\tau_{AE}$ (percentil $p=95$) & 0.023966 & Não supervisionado \\
+$\tau_{AE}$ ($\mu + 3.0\sigma$) & 0.031035 & Não supervisionado \\
+$\tau_{DIF,ref}$ (percentil $p=95$) & 0.649353 & Não supervisionado \\
+B1\_iForest\_Raw & 0.484057 & Supervisionado (Youden) \\
+B2\_Autoencoder\_Alone & 0.012295 & Supervisionado (Youden) \\
+B3\_PreIF\_iForest & 0.523446 & Supervisionado (Youden) \\
+B3b\_PreIF\_DIF\_Pure & 0.515713 & Supervisionado (Youden) \\
+B6a\_Hybrid\_Linear\_tau & 0.508990 & Supervisionado (Youden) \\
+B6a\_Hybrid\_Linear\_alpha & 0.720000 & Supervisionado (Youden) \\
+B6b\_Hybrid\_OR\_tau\_dif & 0.562155 & Supervisionado (Youden) \\
+B6b\_Hybrid\_OR\_tau\_ae & 0.012295 & Supervisionado (Youden) \\
+\hline
+\end{tabular}
+\begin{flushleft}\footnotesize Regra adotada para $\tau_{AE}$: \texttt{percentile}. Os limiares não supervisionados usam apenas tráfego benigno de validação; os supervisionados usam a validação rotulada e nunca o teste.\end{flushleft}
+\end{table}
